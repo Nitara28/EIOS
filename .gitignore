@@ -1,0 +1,27 @@
+# Byte-compiled / optimized files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# Environment files
+.env
+.env.local
+*.env
+
+# SQLite databases
+*.db
+eios.db
+backend/eios.db
+
+# Node.js
+node_modules/
+frontend/.next/
+frontend/out/
+
+# Log files
+*.log
