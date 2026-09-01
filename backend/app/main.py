@@ -1,9 +1,14 @@
-from fastapi import FastAPI, Request
+import logging
+from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.orm import Session
+from sqlalchemy import text
 from app.core.config import settings
-from app.core.database import engine, Base
+from app.core.database import engine, Base, get_db
 from database.seeds.seed_data import seed_database
+
+logger = logging.getLogger("eios_app")
 
 # API Routers
 from app.api.auth import router as auth_router
@@ -18,40 +23,49 @@ from app.api.ai import router as ai_router
 from app.api.activity_logs import router as activity_logs_router
 from app.api.settings import router as settings_router
 
-# Initialize database schema & seed demo data
+# Initialize database tables
 Base.metadata.create_all(bind=engine)
-try:
-    seed_database()
-except Exception as e:
-    print(f"Seed note: {e}")
+
+# Seed initial data ONLY in development environment when database is empty
+if settings.ENVIRONMENT.lower() != "production":
+    try:
+        seed_database()
+    except Exception as e:
+        logger.info(f"Seed initialization note: {e}")
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description="EIOS — AI COO Business Operations Platform API",
     version="1.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc"
+    docs_url="/docs" if settings.ENVIRONMENT.lower() != "production" else None,
+    redoc_url="/redoc" if settings.ENVIRONMENT.lower() != "production" else None
 )
 
-# CORS configuration
+# Configurable Production CORS Middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.get_cors_origins_list(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Global standardized error handler
+# Global exception handler
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    logger.exception(f"Unhandled server exception on {request.url.path}: {exc}")
+    if settings.ENVIRONMENT.lower() == "production":
+        message = "An internal server error occurred. Please contact system administrator."
+    else:
+        message = str(exc)
+
     return JSONResponse(
         status_code=500,
         content={
             "success": False,
             "error": {
                 "code": "INTERNAL_SERVER_ERROR",
-                "message": str(exc)
+                "message": message
             }
         }
     )
@@ -69,14 +83,37 @@ app.include_router(ai_router, prefix=settings.API_V1_STR)
 app.include_router(activity_logs_router, prefix=settings.API_V1_STR)
 app.include_router(settings_router, prefix=settings.API_V1_STR)
 
+# --- Health Endpoints ---
+
 @app.get("/")
-def root():
+@app.get("/health")
+def health_check():
     return {
-        "status": "online",
-        "app": "EIOS — AI COO Platform",
-        "version": "1.0.0",
-        "docs": "/docs"
+        "status": "ok",
+        "app": settings.PROJECT_NAME,
+        "environment": settings.ENVIRONMENT,
+        "version": "1.0.0"
     }
+
+@app.get("/health/db")
+def db_health_check(db: Session = Depends(get_db)):
+    try:
+        db.execute(text("SELECT 1"))
+        return {
+            "status": "ok",
+            "database": "connected",
+            "environment": settings.ENVIRONMENT
+        }
+    except Exception as e:
+        logger.error(f"Database readiness check failed: {e}")
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "error",
+                "database": "disconnected",
+                "error": str(e) if settings.ENVIRONMENT.lower() != "production" else "Database connection failed"
+            }
+        )
 
 if __name__ == "__main__":
     import uvicorn

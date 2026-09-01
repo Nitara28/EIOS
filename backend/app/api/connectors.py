@@ -3,6 +3,7 @@ from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Q
 from fastapi.responses import RedirectResponse, PlainTextResponse
 from sqlalchemy.orm import Session
 from app.core.database import get_db
+from app.core.config import settings
 from app.models.domain import Organization, DataSource, SyncJob
 from app.api.auth import get_current_organization
 from app.connectors.excel_connector import ExcelConnector
@@ -118,7 +119,8 @@ async def gmail_oauth_callback(
 ):
     try:
         await GmailConnector.exchange_code_for_tokens(code=code, organization_id=state, db=db)
-        return RedirectResponse(url="http://localhost:3000/data-sources?status=gmail_connected")
+        frontend_url = settings.FRONTEND_URL.rstrip("/")
+        return RedirectResponse(url=f"{frontend_url}/data-sources?status=gmail_connected")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"OAuth Authorization failed: {e}")
 
