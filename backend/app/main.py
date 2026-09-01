@@ -23,8 +23,11 @@ from app.api.ai import router as ai_router
 from app.api.activity_logs import router as activity_logs_router
 from app.api.settings import router as settings_router
 
-# Initialize database tables
-Base.metadata.create_all(bind=engine)
+# Initialize database tables safely without crashing startup if DB is offline
+try:
+    Base.metadata.create_all(bind=engine)
+except Exception as e:
+    logger.warning(f"Database table initialization warning: {e}")
 
 # Seed initial data ONLY in development environment when database is empty
 if settings.ENVIRONMENT.lower() != "production":
